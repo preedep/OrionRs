@@ -8,11 +8,17 @@ use application::{RagService, SearchService};
 use config::Config;
 use domain::SearchQuery;
 use infrastructure::{EmbeddingService, OllamaClient, QdrantClient};
+use log::info;
 use std::env;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    pretty_env_logger::init();
+    
+    info!("Starting OrionRs Vector Search Application");
+
     let config = Config::from_env()?;
+    info!("Configuration loaded successfully");
     
     let mode = env::args().nth(1).unwrap_or_else(|| "search".to_string());
 

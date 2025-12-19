@@ -1,6 +1,7 @@
 use anyhow::Result;
+use log::{debug, info};
 
-use crate::domain::{ChatMessage, ChatRequest, ChatResponse, LLMService, SearchQuery, SearchResult};
+use crate::domain::{ChatMessage, ChatRequest, LLMService, SearchQuery, SearchResult};
 use crate::infrastructure::{EmbeddingService, QdrantClient};
 
 pub struct RagService<L: LLMService> {
@@ -23,6 +24,9 @@ impl<L: LLMService> RagService<L> {
     }
 
     async fn search_documents(&self, query: &str, limit: u64) -> Result<Vec<SearchResult>> {
+        info!("Searching for relevant documents");
+        debug!("Query: {}, Limit: {}", query, limit);
+        
         let search_query = SearchQuery::new(query, limit);
         
         let query_vector = self.embedding_service
@@ -33,10 +37,14 @@ impl<L: LLMService> RagService<L> {
             .search(query_vector, search_query.limit, search_query.score_threshold)
             .await?;
         
+        info!("Retrieved {} relevant documents", results.len());
+        
         Ok(results)
     }
 
     fn build_context(&self, results: &[SearchResult]) -> String {
+        debug!("Building context from {} documents", results.len());
+        
         let mut context = String::new();
         
         for (idx, result) in results.iter().enumerate() {
@@ -49,6 +57,8 @@ impl<L: LLMService> RagService<L> {
             ));
         }
         
+        debug!("Context built (total length: {} chars)", context.len());
+        
         context
     }
 
@@ -58,10 +68,11 @@ impl<L: LLMService> RagService<L> {
         model: &str,
         num_results: u64,
     ) -> Result<RagResponse> {
-        println!("🔍 Searching for relevant documents...");
-        let search_results = self.search_documents(question, num_results).await?;
+        info!("Starting RAG query");
+        debug!("Question: {}", question);
+        debug!("Model: {}, Num results: {}", model, num_results);
         
-        println!("   ✅ Found {} relevant documents", search_results.len());
+        let search_results = self.search_documents(question, num_results).await?;
         
         let context = self.build_context(&search_results);
         
@@ -73,13 +84,18 @@ impl<L: LLMService> RagService<L> {
             context
         );
 
+        debug!("System prompt length: {} chars", system_prompt.len());
+
         let chat_request = ChatRequest::new(model)
             .add_message(ChatMessage::system(system_prompt))
             .add_message(ChatMessage::user(question))
             .with_temperature(0.7);
 
-        println!("🤖 Generating answer with {}...", model);
+        info!("Generating answer with LLM");
         let response = self.llm_service.chat(chat_request).await?;
+        
+        info!("RAG query completed successfully");
+        debug!("Answer length: {} chars", response.content.len());
         
         Ok(RagResponse {
             answer: response.content,

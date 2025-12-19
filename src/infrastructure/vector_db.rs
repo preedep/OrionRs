@@ -1,4 +1,5 @@
 use anyhow::Result;
+use log::{debug, info, warn};
 use serde::Deserialize;
 use std::collections::HashMap;
 
@@ -24,9 +25,15 @@ struct QdrantScoredPoint {
 
 impl QdrantClient {
     pub fn new(host: &str, port: u16, collection_name: &str) -> Result<Self> {
+        info!("Initializing Qdrant client");
+        debug!("Qdrant URL: http://{}:{}", host, port);
+        debug!("Collection: {}", collection_name);
+        
         let http_client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
             .build()?;
+        
+        info!("Qdrant client initialized successfully");
         
         Ok(Self {
             http_client,
@@ -41,6 +48,10 @@ impl QdrantClient {
         limit: u64,
         score_threshold: Option<f32>,
     ) -> Result<Vec<SearchResult>> {
+        info!("Searching in Qdrant collection: {}", self.collection_name);
+        debug!("Search parameters - limit: {}, score_threshold: {:?}, vector_dim: {}", 
+               limit, score_threshold, query_vector.len());
+        
         let url = format!("{}/collections/{}/points/search", self.base_url, self.collection_name);
         
         let mut body = serde_json::json!({
@@ -51,17 +62,23 @@ impl QdrantClient {
         
         if let Some(threshold) = score_threshold {
             body["score_threshold"] = serde_json::json!(threshold);
+            debug!("Using score threshold: {}", threshold);
         }
         
+        let start = std::time::Instant::now();
         let response = self.http_client
             .post(&url)
             .json(&body)
             .send()
             .await?;
         
+        let request_duration = start.elapsed();
+        debug!("Qdrant request completed in {:.2}ms", request_duration.as_secs_f64() * 1000.0);
+        
         if !response.status().is_success() {
             let status = response.status();
             let error_text = response.text().await?;
+            warn!("Qdrant search failed with status {}: {}", status, error_text);
             anyhow::bail!("Qdrant search failed ({}): {}", status, error_text);
         }
         
@@ -72,6 +89,11 @@ impl QdrantClient {
             .into_iter()
             .map(|point| self.parse_scored_point(point))
             .collect::<Result<Vec<_>>>()?;
+
+        info!("Found {} results from Qdrant", results.len());
+        if !results.is_empty() {
+            debug!("Top result score: {:.4}", results[0].score);
+        }
 
         Ok(results)
     }
