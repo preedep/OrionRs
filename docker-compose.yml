@@ -1,0 +1,58 @@
+services:
+  # Qdrant Vector Database
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: orion-qdrant
+    ports:
+      - "6333:6333"  # REST API
+      - "6334:6334"  # gRPC API
+    volumes:
+      - ./qdrant_storage:/qdrant/storage
+    environment:
+      - QDRANT__SERVICE__GRPC_PORT=6334
+    restart: unless-stopped
+    networks:
+      - orion-network
+
+  # Ollama LLM Server
+  ollama:
+    image: ollama/ollama:latest
+    container_name: orion-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ./ollama_data:/root/.ollama
+    restart: unless-stopped
+    networks:
+      - orion-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Ollama Web UI (Optional)
+  ollama-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: orion-ollama-webui
+    ports:
+      - "3333:8080"
+    volumes:
+      - ./ollama_webui:/app/backend/data
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+    depends_on:
+      - ollama
+    restart: unless-stopped
+    networks:
+      - orion-network
+
+networks:
+  orion-network:
+    driver: bridge
+
+volumes:
+  qdrant_storage:
+  ollama_data:
+  ollama_webui:
